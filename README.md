@@ -78,8 +78,8 @@
 ### 1. Клонирование репозитория
 
 ```bash
-git clone <YOUR_REPO_URL>
-cd botPerenos
+git clone https://github.com/lukinism/VK2TG.git
+cd VK2TG
 ```
 
 ### 2. Создание `.env`
