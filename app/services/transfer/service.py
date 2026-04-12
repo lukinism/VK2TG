@@ -210,6 +210,11 @@ class TransferService:
             for index, attachment in enumerate(attachments):
                 if not attachment.url or attachment.type == AttachmentType.LINK:
                     continue
+                if attachment.local_path:
+                    local_path = Path(attachment.local_path)
+                    if local_path.exists():
+                        continue
+                    attachment.local_path = None
                 if attachment.type == AttachmentType.VIDEO and "vk.com/" in attachment.url:
                     attachment.skipped = True
                     attachment.error = "VK did not provide a direct downloadable video file"

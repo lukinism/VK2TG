@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import asyncio
 
 import httpx
 
@@ -38,17 +39,33 @@ class TelegramClient:
         if not settings.telegram_bot_token:
             raise RuntimeError("Telegram token is not configured in admin panel")
         base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
-        timeout = httpx.Timeout(60.0)
+        timeout = httpx.Timeout(connect=15.0, read=60.0, write=300.0, pool=60.0)
         client_kwargs = {"timeout": timeout}
         if settings.telegram_proxy_url:
             client_kwargs["proxy"] = settings.telegram_proxy_url
+        max_attempts = 3
+        last_error: Exception | None = None
         async with httpx.AsyncClient(**client_kwargs) as client:
-            response = await client.post(f"{base_url}/{method}", data=data, files=files)
-            response_text = response.text
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = None
+            response = None
+            response_text = ""
+            payload = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = await client.post(f"{base_url}/{method}", data=data, files=files)
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    last_error = exc
+                    if attempt >= max_attempts:
+                        raise RuntimeError(f"Telegram request failed after {attempt} attempts: {exc}") from exc
+                    await asyncio.sleep(1.0 * attempt)
+                    continue
+                response_text = response.text
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                break
+        if response is None:
+            raise RuntimeError(f"Telegram request failed: {last_error}")
         description = None
         error_code = None
         if isinstance(payload, dict):
