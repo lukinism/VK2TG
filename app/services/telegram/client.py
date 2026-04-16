@@ -34,15 +34,20 @@ class TelegramClient:
     def __init__(self, storage) -> None:
         self.storage = storage
 
-    async def _request(self, method: str, *, data=None, files=None) -> dict:
-        settings = await self.storage.load_settings()
-        if not settings.telegram_bot_token:
+    async def _request(self, method: str, *, data=None, files=None, bot_token: str | None = None, proxy_url: str | None = None) -> dict:
+        if bot_token is None or proxy_url is None:
+            settings = await self.storage.load_settings()
+            if bot_token is None:
+                bot_token = settings.telegram_bot_token
+            if proxy_url is None:
+                proxy_url = settings.telegram_proxy_url
+        if not bot_token:
             raise RuntimeError("Telegram token is not configured in admin panel")
-        base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+        base_url = f"https://api.telegram.org/bot{bot_token}"
         timeout = httpx.Timeout(connect=15.0, read=60.0, write=300.0, pool=60.0)
         client_kwargs = {"timeout": timeout}
-        if settings.telegram_proxy_url:
-            client_kwargs["proxy"] = settings.telegram_proxy_url
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
         max_attempts = 3
         last_error: Exception | None = None
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -96,6 +101,9 @@ class TelegramClient:
                 response_text=response_text,
             )
         return payload["result"]
+
+    async def validate_token(self, bot_token: str, proxy_url: str = "") -> dict:
+        return await self._request("getMe", bot_token=bot_token, proxy_url=proxy_url)
 
     async def send_text(self, chat_id: str, text: str) -> list[int]:
         message_ids: list[int] = []

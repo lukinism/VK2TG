@@ -11,6 +11,7 @@ from app.api.common import CSRF_HEADER_NAME, get_or_create_csrf_token, is_admin,
 from app.core.security import mask_secret
 from app.dependencies import container
 from app.models.schemas import SystemSettings, VKSource
+from app.services.token_monitor import TokenValidationError
 
 
 router = APIRouter(tags=["api"])
@@ -41,6 +42,12 @@ class SettingsViewPayload(BaseModel):
     has_vk_token: bool
     has_telegram_bot_token: bool
     has_telegram_proxy_url: bool
+    vk_token_valid: bool | None = None
+    vk_token_validation_error: str | None = None
+    vk_token_last_validated_at: datetime | None = None
+    telegram_bot_token_valid: bool | None = None
+    telegram_bot_token_validation_error: str | None = None
+    telegram_bot_token_last_validated_at: datetime | None = None
 
 
 class SettingsUpdatePayload(BaseModel):
@@ -238,6 +245,12 @@ async def get_settings_view(_auth: str = Depends(require_api_access)) -> Setting
         has_vk_token=bool(settings.vk_token),
         has_telegram_bot_token=bool(settings.telegram_bot_token),
         has_telegram_proxy_url=bool(settings.telegram_proxy_url),
+        vk_token_valid=settings.vk_token_valid,
+        vk_token_validation_error=settings.vk_token_validation_error,
+        vk_token_last_validated_at=settings.vk_token_last_validated_at,
+        telegram_bot_token_valid=settings.telegram_bot_token_valid,
+        telegram_bot_token_validation_error=settings.telegram_bot_token_validation_error,
+        telegram_bot_token_last_validated_at=settings.telegram_bot_token_last_validated_at,
     )
 
 
@@ -249,6 +262,10 @@ async def update_settings(
     _auth: str = Depends(require_api_access),
 ):
     enforce_api_csrf_if_session_present(request, x_csrf_token)
+    try:
+        await container.token_monitor.validate_on_settings_save(settings)
+    except TokenValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await container.storage.save_settings(settings)
 
 
@@ -261,6 +278,9 @@ async def update_settings_view(
 ) -> SettingsViewPayload:
     enforce_api_csrf_if_session_present(request, x_csrf_token)
     settings = await container.storage.load_settings()
+    vk_token_changed = payload.clear_vk_token or bool(payload.vk_token.strip())
+    telegram_token_changed = payload.clear_telegram_token or bool(payload.telegram_bot_token.strip())
+    telegram_proxy_changed = payload.clear_telegram_proxy or bool(payload.telegram_proxy_url.strip())
     settings.poll_interval_seconds = payload.poll_interval_seconds
     settings.retry_limit = payload.retry_limit
     settings.admin_username = payload.admin_username
@@ -281,6 +301,13 @@ async def update_settings_view(
         settings.telegram_proxy_url_encrypted = ""
     elif payload.telegram_proxy_url.strip():
         settings.telegram_proxy_url = payload.telegram_proxy_url.strip()
+    try:
+        if vk_token_changed:
+            await container.token_monitor.validate_vk_token_value(settings.vk_token, settings)
+        if telegram_token_changed or telegram_proxy_changed:
+            await container.token_monitor.validate_telegram_token_value(settings.telegram_bot_token, settings.telegram_proxy_url, settings)
+    except TokenValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await container.storage.save_settings(settings)
     return await get_settings_view(_auth)
 

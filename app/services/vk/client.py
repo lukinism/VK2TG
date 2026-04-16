@@ -24,11 +24,14 @@ class VKClient:
     def __init__(self, storage) -> None:
         self.storage = storage
 
-    async def _call(self, method: str, params: dict) -> dict:
-        settings = await self.storage.load_settings()
-        if not settings.vk_token:
+    async def _call(self, method: str, params: dict, *, access_token: str | None = None) -> dict:
+        token = access_token
+        if token is None:
+            settings = await self.storage.load_settings()
+            token = settings.vk_token
+        if not token:
             raise RuntimeError("VK token is not configured in admin panel")
-        payload = {"access_token": settings.vk_token, "v": self.API_VERSION, **params}
+        payload = {"access_token": token, "v": self.API_VERSION, **params}
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(f"{self.API_URL}/{method}", params=payload)
             response.raise_for_status()
@@ -41,6 +44,12 @@ class VKClient:
                 raise VKWallDisabledError("VK wall is disabled for this source", error_code=error_code)
             raise VKAPIError(error_message, error_code=error_code)
         return data["response"]
+
+    async def validate_token(self, token: str) -> dict:
+        response = await self._call("users.get", {}, access_token=token)
+        if not response:
+            raise VKAPIError("VK token validation returned an empty response")
+        return response[0]
 
     async def resolve_source(self, screen_name: str) -> dict:
         return await self._call("utils.resolveScreenName", {"screen_name": screen_name})

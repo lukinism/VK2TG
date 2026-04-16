@@ -23,7 +23,16 @@ async function request<T>(path: string, options: RequestInit = {}, csrfToken?: s
     credentials: "include",
   });
   if (!response.ok) {
-    const detail = await response.text();
+    const responseText = await response.text();
+    let detail = responseText;
+    try {
+      const payload = JSON.parse(responseText) as { detail?: string };
+      if (payload?.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      // Keep the plain text body when the response is not JSON.
+    }
     throw new Error(detail || `Request failed: ${response.status}`);
   }
   if (response.status === 204) {

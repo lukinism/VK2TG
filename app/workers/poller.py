@@ -10,10 +10,11 @@ from app.services.vk.client import VKWallDisabledError
 
 
 class PollingWorker:
-    def __init__(self, storage, logger, transfer_service) -> None:
+    def __init__(self, storage, logger, transfer_service, token_monitor) -> None:
         self.storage = storage
         self.logger = logger
         self.transfer_service = transfer_service
+        self.token_monitor = token_monitor
         self._task: asyncio.Task | None = None
         self._running = False
         self._cycle_lock = asyncio.Lock()
@@ -37,6 +38,15 @@ class PollingWorker:
             return {"transferred": 0, "failed": 0, "status": "busy"}
         async with self._cycle_lock:
             await self.storage.mark_worker_state("running")
+            await self.token_monitor.run_scheduled_checks()
+            settings = await self.storage.load_settings()
+            if settings.vk_token and settings.vk_token_valid is False:
+                await self.logger.warning(
+                    "worker.cycle_skipped_invalid_vk_token",
+                    "Polling cycle skipped because the VK token is currently invalid. Update it in Settings to resume synchronization.",
+                )
+                await self.storage.mark_worker_state("idle")
+                return {"transferred": 0, "failed": 0, "status": "blocked_invalid_vk_token"}
             transferred = 0
             failed = 0
             for source in [item for item in await self.storage.list_sources() if item.is_active]:

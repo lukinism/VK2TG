@@ -115,6 +115,12 @@ export interface SettingsView {
   has_vk_token: boolean;
   has_telegram_bot_token: boolean;
   has_telegram_proxy_url: boolean;
+  vk_token_valid?: boolean | null;
+  vk_token_validation_error?: string | null;
+  vk_token_last_validated_at?: string | null;
+  telegram_bot_token_valid?: boolean | null;
+  telegram_bot_token_validation_error?: string | null;
+  telegram_bot_token_last_validated_at?: string | null;
 }
 
 export interface SettingsUpdate {

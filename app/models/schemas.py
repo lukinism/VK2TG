@@ -105,6 +105,13 @@ class SystemSettings(BaseModel):
     vk_token_encrypted: str = ""
     telegram_bot_token_encrypted: str = ""
     telegram_proxy_url_encrypted: str = ""
+    vk_token_valid: bool | None = None
+    vk_token_validation_error: str | None = None
+    vk_token_last_validated_at: datetime | None = None
+    vk_token_last_alerted_at: datetime | None = None
+    telegram_bot_token_valid: bool | None = None
+    telegram_bot_token_validation_error: str | None = None
+    telegram_bot_token_last_validated_at: datetime | None = None
     ffmpeg_binary: str = "ffmpeg"
     data_dir: str = "data"
     cache_dir: str = "data/cache"

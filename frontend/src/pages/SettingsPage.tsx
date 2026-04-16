@@ -2,6 +2,37 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { SettingsUpdate, SettingsView } from "../types";
 
+function formatValidationStatus(
+  isConfigured: boolean,
+  isValid: boolean | null | undefined,
+  lastValidatedAt: string | null | undefined,
+  error: string | null | undefined,
+): string {
+  if (!isConfigured) {
+    return "Статус: не задан";
+  }
+  if (isValid === true) {
+    return `Статус: валиден${lastValidatedAt ? `, проверен ${new Date(lastValidatedAt).toLocaleString()}` : ""}`;
+  }
+  if (isValid === false) {
+    return `Статус: ошибка${error ? `, ${error}` : ""}`;
+  }
+  return "Статус: ожидает проверки";
+}
+
+function formatHeroTokenState(isConfigured: boolean, isValid: boolean | null | undefined): string {
+  if (!isConfigured) {
+    return "Не настроен";
+  }
+  if (isValid === false) {
+    return "Требует внимания";
+  }
+  if (isValid === true) {
+    return "Проверен";
+  }
+  return "Ожидает проверки";
+}
+
 function toUpdateModel(settings: SettingsView): SettingsUpdate {
   return {
     poll_interval_seconds: settings.poll_interval_seconds,
@@ -75,8 +106,8 @@ export function SettingsPage({
           </p>
         </div>
         <div className="page-hero-side">
-          <div className="hero-mini-card"><span>VK token</span><strong>{settings.has_vk_token ? "Есть" : "Нет"}</strong></div>
-          <div className="hero-mini-card"><span>Telegram</span><strong>{settings.has_telegram_bot_token ? "Есть" : "Нет"}</strong></div>
+          <div className="hero-mini-card"><span>VK token</span><strong>{settings.has_vk_token ? "Есть" : "Нет"}</strong><small>{formatHeroTokenState(settings.has_vk_token, settings.vk_token_valid)}</small></div>
+          <div className="hero-mini-card"><span>Telegram</span><strong>{settings.has_telegram_bot_token ? "Есть" : "Нет"}</strong><small>{formatHeroTokenState(settings.has_telegram_bot_token, settings.telegram_bot_token_valid)}</small></div>
         </div>
       </div>
       <form className="page-grid settings-page-react" onSubmit={handleSubmit}>
@@ -123,7 +154,11 @@ export function SettingsPage({
             <strong>Токены и доступ</strong>
             <p>Текущие значения маскируются. Чтобы удалить значение полностью, используй соответствующий чекбокс очистки.</p>
           </div>
-          <div className="token-state">VK token: {settings.vk_token_masked || "не задан"}</div>
+          <div className="token-state">
+            <strong>VK token</strong>
+            <span>{settings.vk_token_masked || "не задан"}</span>
+            <small>{formatValidationStatus(settings.has_vk_token, settings.vk_token_valid, settings.vk_token_last_validated_at, settings.vk_token_validation_error)}</small>
+          </div>
           <label>
             Новый VK token
             <input type="password" value={draft.vk_token} onChange={(event) => setDraft((current) => current && { ...current, vk_token: event.target.value })} />
@@ -133,7 +168,18 @@ export function SettingsPage({
             <span>Очистить VK token</span>
           </label>
 
-          <div className="token-state">Telegram token: {settings.telegram_bot_token_masked || "не задан"}</div>
+          <div className="token-state">
+            <strong>Telegram token</strong>
+            <span>{settings.telegram_bot_token_masked || "не задан"}</span>
+            <small>
+              {formatValidationStatus(
+                settings.has_telegram_bot_token,
+                settings.telegram_bot_token_valid,
+                settings.telegram_bot_token_last_validated_at,
+                settings.telegram_bot_token_validation_error,
+              )}
+            </small>
+          </div>
           <label>
             Новый Telegram token
             <input type="password" value={draft.telegram_bot_token} onChange={(event) => setDraft((current) => current && { ...current, telegram_bot_token: event.target.value })} />

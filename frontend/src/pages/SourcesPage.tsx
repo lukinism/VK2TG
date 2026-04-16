@@ -180,7 +180,7 @@ export function SourcesPage({
             <strong>Что переносить</strong>
             <p>Можно гибко отключать отдельные типы контента и дополнительные элементы подписи.</p>
           </div>
-          <div className="settings-grid-react">
+          <div className="source-settings-grid">
             {[
               ["include_text", "Текст"],
               ["include_photos", "Картинки"],
