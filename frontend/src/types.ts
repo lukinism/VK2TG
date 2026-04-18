@@ -15,6 +15,30 @@ export interface SourceSettings {
   poll_count: number;
 }
 
+export interface SourceSchedule {
+  timezone_name: string;
+  interval_seconds: number;
+  priority: number;
+  active_weekdays: number[];
+  window_start?: string | null;
+  window_end?: string | null;
+  pause_until?: string | null;
+  base_backoff_seconds: number;
+  max_backoff_seconds: number;
+}
+
+export interface SourceRuntimeState {
+  next_run_at?: string | null;
+  last_started_at?: string | null;
+  last_finished_at?: string | null;
+  consecutive_failures: number;
+  last_error_at?: string | null;
+  last_error_message?: string | null;
+  last_outcome?: string | null;
+  scheduler_status: string;
+  scheduler_note?: string | null;
+}
+
 export interface VKSource {
   id: string;
   name: string;
@@ -23,6 +47,8 @@ export interface VKSource {
   is_active: boolean;
   telegram_target: string;
   settings: SourceSettings;
+  schedule: SourceSchedule;
+  runtime: SourceRuntimeState;
   last_checked_at: string | null;
   last_detected_post_id: number | null;
   last_transferred_post_id: number | null;

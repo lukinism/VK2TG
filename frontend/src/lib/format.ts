@@ -35,6 +35,15 @@ export function statusLabel(status: string): string {
     busy: "Занят",
     running: "Работает",
     idle: "Ожидает",
+    inactive: "Выключен",
+    ready: "Готов",
+    waiting_interval: "Ждёт интервал",
+    waiting_window: "Ждёт окно",
+    paused_until: "На паузе",
+    blocked_schedule: "Нет окна",
+    blocked_invalid_vk_token: "VK токен недействителен",
+    backoff: "Backoff",
+    wall_disabled: "Стена отключена",
   };
   return mapping[status] ?? status;
 }

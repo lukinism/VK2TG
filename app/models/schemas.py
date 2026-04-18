@@ -69,6 +69,30 @@ class SourceSettings(BaseModel):
     poll_count: int = 10
 
 
+class SourceSchedule(BaseModel):
+    timezone_name: str = "UTC"
+    interval_seconds: int = 300
+    priority: int = 100
+    active_weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
+    window_start: str | None = None
+    window_end: str | None = None
+    pause_until: datetime | None = None
+    base_backoff_seconds: int = 900
+    max_backoff_seconds: int = 21600
+
+
+class SourceRuntimeState(BaseModel):
+    next_run_at: datetime | None = None
+    last_started_at: datetime | None = None
+    last_finished_at: datetime | None = None
+    consecutive_failures: int = 0
+    last_error_at: datetime | None = None
+    last_error_message: str | None = None
+    last_outcome: str | None = None
+    scheduler_status: str = "idle"
+    scheduler_note: str | None = None
+
+
 class VKSource(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     name: str
@@ -77,6 +101,8 @@ class VKSource(BaseModel):
     is_active: bool = True
     telegram_target: str
     settings: SourceSettings = Field(default_factory=SourceSettings)
+    schedule: SourceSchedule = Field(default_factory=SourceSchedule)
+    runtime: SourceRuntimeState = Field(default_factory=SourceRuntimeState)
     last_checked_at: datetime | None = None
     last_detected_post_id: int | None = None
     last_transferred_post_id: int | None = None

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { formatDate } from "../lib/format";
-import type { SourceSettings, VKSource } from "../types";
+import { formatDate, statusLabel } from "../lib/format";
+import type { SourceSchedule, SourceSettings, SourceRuntimeState, VKSource } from "../types";
 
 const defaultSettings: SourceSettings = {
   include_text: true,
@@ -18,6 +18,64 @@ const defaultSettings: SourceSettings = {
   poll_count: 10,
 };
 
+const weekdayOptions = [
+  { value: 0, label: "Пн" },
+  { value: 1, label: "Вт" },
+  { value: 2, label: "Ср" },
+  { value: 3, label: "Чт" },
+  { value: 4, label: "Пт" },
+  { value: 5, label: "Сб" },
+  { value: 6, label: "Вс" },
+];
+
+const defaultSchedule: SourceSchedule = {
+  timezone_name: "UTC",
+  interval_seconds: 300,
+  priority: 100,
+  active_weekdays: weekdayOptions.map((item) => item.value),
+  window_start: "",
+  window_end: "",
+  pause_until: "",
+  base_backoff_seconds: 900,
+  max_backoff_seconds: 21600,
+};
+
+const defaultRuntime: SourceRuntimeState = {
+  next_run_at: null,
+  last_started_at: null,
+  last_finished_at: null,
+  consecutive_failures: 0,
+  last_error_at: null,
+  last_error_message: null,
+  last_outcome: null,
+  scheduler_status: "idle",
+  scheduler_note: null,
+};
+
+function toDateTimeLocalValue(value?: string | null): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value: string): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+}
+
 function createDraft(): VKSource {
   return {
     id: "",
@@ -27,6 +85,8 @@ function createDraft(): VKSource {
     is_active: true,
     telegram_target: "",
     settings: { ...defaultSettings },
+    schedule: { ...defaultSchedule },
+    runtime: { ...defaultRuntime },
     last_checked_at: null,
     last_detected_post_id: null,
     last_transferred_post_id: null,
@@ -66,13 +126,24 @@ export function SourcesPage({
     setDraft((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
   }
 
+  function updateSchedule<K extends keyof SourceSchedule>(key: K, value: SourceSchedule[K]) {
+    setDraft((current) => ({ ...current, schedule: { ...current.schedule, [key]: value } }));
+  }
+
   function updateBooleanSetting(key: keyof Omit<SourceSettings, "poll_count">, value: boolean) {
     setDraft((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
   }
 
   function startEdit(source: VKSource) {
     setEditingId(source.id);
-    setDraft(JSON.parse(JSON.stringify(source)) as VKSource);
+    const clonedSource = JSON.parse(JSON.stringify(source)) as VKSource;
+    setDraft({
+      ...clonedSource,
+      schedule: {
+        ...clonedSource.schedule,
+        pause_until: toDateTimeLocalValue(source.schedule.pause_until),
+      },
+    });
   }
 
   function resetForm() {
@@ -85,6 +156,16 @@ export function SourcesPage({
     const payload: VKSource = {
       ...draft,
       group_id: draft.group_id ? Number(draft.group_id) : null,
+      schedule: {
+        ...draft.schedule,
+        interval_seconds: Number(draft.schedule.interval_seconds),
+        priority: Number(draft.schedule.priority),
+        base_backoff_seconds: Number(draft.schedule.base_backoff_seconds),
+        max_backoff_seconds: Number(draft.schedule.max_backoff_seconds),
+        window_start: draft.schedule.window_start || null,
+        window_end: draft.schedule.window_end || null,
+        pause_until: fromDateTimeLocalValue(draft.schedule.pause_until || ""),
+      },
       updated_at: new Date().toISOString(),
     };
     try {
@@ -172,6 +253,63 @@ export function SourcesPage({
             Постов за один опрос
             <input type="number" min={1} max={100} value={draft.settings.poll_count} onChange={(event) => updateSettings("poll_count", Number(event.target.value))} />
           </label>
+          <div className="form-subsection">
+            <strong>Расписание и очередь</strong>
+            <p>Интервал, приоритет, окно работы и backoff для конкретного источника.</p>
+          </div>
+          <div className="source-form-grid">
+            <label>
+              Таймзона
+              <input value={draft.schedule.timezone_name} onChange={(event) => updateSchedule("timezone_name", event.target.value)} placeholder="UTC или Asia/Kamchatka" />
+            </label>
+            <label>
+              Интервал, сек
+              <input type="number" min={60} value={draft.schedule.interval_seconds} onChange={(event) => updateSchedule("interval_seconds", Number(event.target.value))} />
+            </label>
+            <label>
+              Приоритет
+              <input type="number" min={1} max={1000} value={draft.schedule.priority} onChange={(event) => updateSchedule("priority", Number(event.target.value))} />
+            </label>
+            <label>
+              Базовый backoff, сек
+              <input type="number" min={60} value={draft.schedule.base_backoff_seconds} onChange={(event) => updateSchedule("base_backoff_seconds", Number(event.target.value))} />
+            </label>
+            <label>
+              Максимальный backoff, сек
+              <input type="number" min={60} value={draft.schedule.max_backoff_seconds} onChange={(event) => updateSchedule("max_backoff_seconds", Number(event.target.value))} />
+            </label>
+            <label>
+              Пауза до
+              <input type="datetime-local" value={draft.schedule.pause_until || ""} onChange={(event) => updateSchedule("pause_until", event.target.value)} />
+            </label>
+            <label>
+              Начало окна
+              <input type="time" value={draft.schedule.window_start || ""} onChange={(event) => updateSchedule("window_start", event.target.value)} />
+            </label>
+            <label>
+              Конец окна
+              <input type="time" value={draft.schedule.window_end || ""} onChange={(event) => updateSchedule("window_end", event.target.value)} />
+            </label>
+          </div>
+          <div className="weekday-picker">
+            {weekdayOptions.map((item) => (
+              <label key={item.value} className="switch weekday-chip">
+                <input
+                  type="checkbox"
+                  checked={draft.schedule.active_weekdays.includes(item.value)}
+                  onChange={(event) =>
+                    updateSchedule(
+                      "active_weekdays",
+                      event.target.checked
+                        ? [...draft.schedule.active_weekdays, item.value].sort((left, right) => left - right)
+                        : draft.schedule.active_weekdays.filter((value) => value !== item.value),
+                    )
+                  }
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
+          </div>
           <label className="switch">
             <input type="checkbox" checked={draft.is_active} onChange={(event) => setDraft((current) => ({ ...current, is_active: event.target.checked }))} />
             <span>Источник активен</span>
@@ -239,6 +377,13 @@ export function SourcesPage({
                 </div>
                 <p className="app-muted">{source.telegram_target}</p>
                 <div className="pill-row">
+                  <span className={`pill ${source.runtime.scheduler_status === "ready" || source.runtime.scheduler_status === "running" ? "success" : source.runtime.scheduler_status === "backoff" || source.runtime.scheduler_status === "waiting_window" ? "warning" : "soft"}`}>
+                    {statusLabel(source.runtime.scheduler_status)}
+                  </span>
+                  <span className="pill soft">Приоритет {source.schedule.priority}</span>
+                  <span className="pill soft">Интервал {source.schedule.interval_seconds}s</span>
+                </div>
+                <div className="pill-row">
                   {source.settings.include_text ? <span className="pill soft">Текст</span> : null}
                   {source.settings.include_photos ? <span className="pill soft">Картинки</span> : null}
                   {source.settings.include_videos ? <span className="pill soft">Видео</span> : null}
@@ -249,7 +394,11 @@ export function SourcesPage({
                 <div className="source-card-meta">
                   <span>Последняя проверка: {formatDate(source.last_checked_at)}</span>
                   <span>Последний пост: {source.last_transferred_post_id ?? "—"}</span>
+                  <span>Следующий запуск: {formatDate(source.runtime.next_run_at)}</span>
+                  <span>Ошибок подряд: {source.runtime.consecutive_failures}</span>
                 </div>
+                {source.runtime.scheduler_note ? <p className="app-muted source-runtime-note">{source.runtime.scheduler_note}</p> : null}
+                {source.runtime.last_error_message ? <p className="source-runtime-error">{source.runtime.last_error_message}</p> : null}
                 <div className="page-actions">
                   <button type="button" className="ghost" onClick={() => startEdit(source)}>
                     Изменить
