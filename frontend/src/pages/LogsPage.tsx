@@ -3,25 +3,43 @@ import { api } from "../lib/api";
 import { formatDate } from "../lib/format";
 import type { LogEntry } from "../types";
 
-export function LogsPage() {
+export function LogsPage({
+  csrfToken,
+  onFlash,
+}: {
+  csrfToken: string;
+  onFlash: (flash: { type: "success" | "error" | "info"; message: string } | null) => void;
+}) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [level, setLevel] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    void (async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (level) {
-          params.set("level", level);
-        }
-        setLogs(await api.listLogs(params));
-      } finally {
-        setLoading(false);
+  async function loadLogs(currentLevel: string) {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (currentLevel) {
+        params.set("level", currentLevel);
       }
-    })();
+      setLogs(await api.listLogs(params));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadLogs(level);
   }, [level]);
+
+  async function handleClearLogs() {
+    try {
+      const result = await api.clearLogs(csrfToken);
+      await loadLogs(level);
+      onFlash({ type: "success", message: `Логи очищены. Удалено записей: ${result.removed}.` });
+    } catch (err) {
+      onFlash({ type: "error", message: err instanceof Error ? err.message : "Не удалось очистить логи" });
+    }
+  }
 
   const errorCount = logs.filter((item) => item.level === "ERROR").length;
   const warningCount = logs.filter((item) => item.level === "WARNING").length;
@@ -29,7 +47,7 @@ export function LogsPage() {
 
   return (
     <section className="page-stack">
-      <div className="page-hero">
+      <div className="page-hero logs-hero">
         <div>
           <p className="app-kicker">Диагностика</p>
           <h1>Логи</h1>
@@ -53,15 +71,20 @@ export function LogsPage() {
             <p className="app-kicker">Диагностика</p>
             <h2>Логи</h2>
           </div>
-          <label className="compact-field">
-            Уровень
-            <select value={level} onChange={(event) => setLevel(event.target.value)}>
-              <option value="">Все</option>
-              <option value="INFO">INFO</option>
-              <option value="WARNING">WARNING</option>
-              <option value="ERROR">ERROR</option>
-            </select>
-          </label>
+          <div className="page-actions">
+            <label className="compact-field">
+              Уровень
+              <select value={level} onChange={(event) => setLevel(event.target.value)}>
+                <option value="">Все</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+            </label>
+            <button type="button" className="danger" onClick={() => void handleClearLogs()}>
+              Очистить логи
+            </button>
+          </div>
         </div>
         {loading ? <p>Загружаем логи...</p> : null}
         {!loading && !logs.length ? (
@@ -73,11 +96,11 @@ export function LogsPage() {
           <div className="list-stack">
             {logs.map((entry) => (
               <article key={entry.id} className="log-card">
-                <div className="row-between">
+                <div className="row-between log-card-head">
                   <strong>{entry.event}</strong>
                   <span className={`pill ${entry.level.toLowerCase()}`}>{entry.level}</span>
                 </div>
-                <p>{entry.message}</p>
+                <p className="log-message" title={entry.message}>{entry.message}</p>
                 <div className="source-card-meta">
                   <span>{formatDate(entry.timestamp)}</span>
                   {entry.source_id ? <span>source: {entry.source_id}</span> : null}

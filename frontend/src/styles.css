@@ -218,6 +218,27 @@ button.ghost,
   line-height: 1.4;
 }
 
+.logs-hero {
+  align-items: start;
+}
+
+.logs-hero .page-hero-side {
+  align-self: start;
+}
+
+.logs-hero .hero-mini-card {
+  padding: 12px 16px;
+  min-height: 0;
+}
+
+.logs-hero .hero-mini-card span {
+  margin-bottom: 4px;
+}
+
+.logs-hero .hero-mini-card strong {
+  line-height: 1;
+}
+
 .metric-grid,
 .summary-grid,
 .settings-grid-react { display: grid; gap: 16px; }
@@ -240,6 +261,19 @@ button.ghost,
   border-radius: 24px;
   padding: 20px;
   box-shadow: 0 16px 32px rgba(25, 45, 78, 0.08);
+}
+
+.log-metric-grid .metric-tile {
+  padding: 12px 18px;
+  min-height: 88px;
+}
+
+.log-metric-grid .metric-tile span {
+  margin-bottom: 4px;
+}
+
+.log-metric-grid .metric-tile strong {
+  line-height: 1.1;
 }
 
 .metric-tile span,
@@ -308,6 +342,36 @@ textarea {
   border-radius: 22px;
   padding: 18px;
   background: rgba(255, 255, 255, 0.7);
+}
+
+.log-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 190px;
+  max-height: 190px;
+  overflow: hidden;
+}
+
+.log-card-head {
+  align-items: start;
+}
+
+.log-card-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-message {
+  margin: 12px 0 0;
+  min-width: 0;
+  overflow: hidden;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
 }
 
 .source-card-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }

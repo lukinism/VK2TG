@@ -274,6 +274,14 @@ class FileStorage:
             entries = [item for item in entries if item.transfer_id == transfer_id]
         return list(reversed(entries))
 
+    async def clear_logs(self) -> dict[str, int]:
+        async with self._lock:
+            if not self.logs_path.exists():
+                return {"removed": 0}
+            lines = [line for line in self.logs_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.logs_path.write_text("", encoding="utf-8")
+        return {"removed": len(lines)}
+
     async def mark_worker_state(self, status: str) -> None:
         async with self._lock:
             await self._atomic_write_json(

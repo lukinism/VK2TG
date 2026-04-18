@@ -81,7 +81,7 @@ function AppShell({ session, refreshSession }: { session: SessionInfo; refreshSe
           <Route path="/sources" element={<SourcesPage csrfToken={session.csrf_token ?? ""} onFlash={setFlash} />} />
           <Route path="/transfers" element={<TransfersPage />} />
           <Route path="/cache" element={<CachePage csrfToken={session.csrf_token ?? ""} onFlash={setFlash} />} />
-          <Route path="/logs" element={<LogsPage />} />
+          <Route path="/logs" element={<LogsPage csrfToken={session.csrf_token ?? ""} onFlash={setFlash} />} />
           <Route path="/settings" element={<SettingsPage csrfToken={session.csrf_token ?? ""} onFlash={setFlash} />} />
         </Routes>
       </main>

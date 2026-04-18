@@ -54,6 +54,7 @@ export const api = {
   deleteSource: (sourceId: string, csrfToken: string) => request<{ deleted: boolean }>(`/api/sources/${sourceId}`, { method: "DELETE" }, csrfToken),
   listTransfers: () => request<TransferRecord[]>("/api/transfers"),
   listLogs: (params: URLSearchParams) => request<LogEntry[]>(`/api/logs?${params.toString()}`),
+  clearLogs: (csrfToken: string) => request<{ removed: number }>("/api/logs/clear", { method: "POST" }, csrfToken),
   getCache: () => request<CacheOverview>("/api/cache"),
   clearCache: (csrfToken: string) => request<{ removed_files: number; removed_bytes: number }>("/api/cache/clear", { method: "POST" }, csrfToken),
   getSettings: () => request<SettingsView>("/api/settings/view"),

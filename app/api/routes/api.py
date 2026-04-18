@@ -210,6 +210,16 @@ async def list_logs(
     return await container.storage.list_logs(level=level, source_id=source_id, transfer_id=transfer_id)
 
 
+@router.post("/logs/clear")
+async def clear_logs(
+    request: Request,
+    x_csrf_token: str | None = Header(None, alias=CSRF_HEADER_NAME),
+    _auth: str = Depends(require_api_access),
+):
+    enforce_api_csrf_if_session_present(request, x_csrf_token)
+    return await container.storage.clear_logs()
+
+
 @router.get("/cache")
 async def get_cache_overview(_auth: str = Depends(require_api_access)):
     return await container.storage.cache_overview()
