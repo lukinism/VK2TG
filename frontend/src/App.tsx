@@ -16,6 +16,18 @@ function AppShell({ session, refreshSession }: { session: SessionInfo; refreshSe
   const navigate = useNavigate();
   const [flash, setFlash] = useState<FlashMessage>(null);
 
+  useEffect(() => {
+    if (!flash) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setFlash(null);
+    }, 4000);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [flash]);
+
   const navItems = useMemo(
     () => [
       { to: "/", label: "Дашборд" },
