@@ -92,7 +92,7 @@ class PollingWorker:
                 except Exception as exc:
                     failed += 1
                     details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
-                    await self._mark_source_failure(source, details, status="error")
+                    await self._mark_source_failure(source, self._summarize_exception(exc), status="error")
                     await self.logger.error("worker.source_failed", f"Source sync failed for {source.name}: {details}", source_id=source.id)
             await self.storage.mark_worker_state("idle")
             return {
@@ -260,3 +260,7 @@ class PollingWorker:
             return ZoneInfo(timezone_name or "UTC")
         except Exception:
             return ZoneInfo("UTC")
+
+    def _summarize_exception(self, exc: Exception) -> str:
+        message = str(exc).strip() or exc.__class__.__name__
+        return f"{exc.__class__.__name__}: {message}"

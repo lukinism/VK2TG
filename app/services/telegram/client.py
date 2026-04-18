@@ -6,6 +6,7 @@ import asyncio
 
 import httpx
 
+from app.core.http import build_async_client
 from app.models.schemas import AttachmentType, TransferAttachment
 
 
@@ -50,7 +51,7 @@ class TelegramClient:
             client_kwargs["proxy"] = proxy_url
         max_attempts = 3
         last_error: Exception | None = None
-        async with httpx.AsyncClient(**client_kwargs) as client:
+        async with build_async_client(**client_kwargs) as client:
             response = None
             response_text = ""
             payload = None

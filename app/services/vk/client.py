@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.core.http import build_async_client
 from app.models.schemas import AttachmentType, TransferAttachment, VKPost, VKSource
 
 
@@ -32,7 +33,7 @@ class VKClient:
         if not token:
             raise RuntimeError("VK token is not configured in admin panel")
         payload = {"access_token": token, "v": self.API_VERSION, **params}
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with build_async_client(timeout=30.0) as client:
             response = await client.get(f"{self.API_URL}/{method}", params=payload)
             response.raise_for_status()
             data = response.json()

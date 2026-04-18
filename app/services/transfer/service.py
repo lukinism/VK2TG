@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 import httpx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from app.core.http import build_async_client
 from app.core.logging import AppLogger
 from app.models.schemas import AttachmentType, TransferAttachment, TransferRecord, TransferStatus, VKPost, VKSource
 
@@ -206,7 +207,7 @@ class TransferService:
     async def _download_attachments(self, attachments: list[TransferAttachment]) -> None:
         cache_dir = Path(self.storage.cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        async with build_async_client(timeout=120.0, follow_redirects=True) as client:
             for index, attachment in enumerate(attachments):
                 if not attachment.url or attachment.type == AttachmentType.LINK:
                     continue
