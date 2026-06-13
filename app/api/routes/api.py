@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import traceback
+from uuid import uuid4
 
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -146,6 +147,9 @@ async def create_source(
     _auth: str = Depends(require_api_access),
 ):
     enforce_api_csrf_if_session_present(request, x_csrf_token)
+    if not source.id or not source.id.strip():
+        source.id = uuid4().hex
+    source.created_at = datetime.now(timezone.utc)
     source.updated_at = datetime.now(timezone.utc)
     return await container.storage.upsert_source(source)
 

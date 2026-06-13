@@ -28,6 +28,16 @@ class TelegramAPIError(RuntimeError):
         self.response_text = response_text
 
 
+class TelegramDeliveryUncertainError(RuntimeError):
+    def __init__(self, method: str, original_error: Exception) -> None:
+        super().__init__(
+            f"Telegram delivery state is uncertain for {method}: {original_error}. "
+            "Automatic retries were stopped to prevent duplicate messages."
+        )
+        self.method = method
+        self.original_error = original_error
+
+
 class TelegramClient:
     MESSAGE_TEXT_LIMIT = 4096
     MEDIA_CAPTION_LIMIT = 1024
@@ -35,7 +45,16 @@ class TelegramClient:
     def __init__(self, storage) -> None:
         self.storage = storage
 
-    async def _request(self, method: str, *, data=None, files=None, bot_token: str | None = None, proxy_url: str | None = None) -> dict:
+    async def _request(
+        self,
+        method: str,
+        *,
+        data=None,
+        files=None,
+        bot_token: str | None = None,
+        proxy_url: str | None = None,
+        delivery_sensitive: bool = False,
+    ) -> dict:
         if bot_token is None or proxy_url is None:
             settings = await self.storage.load_settings()
             if bot_token is None:
@@ -60,6 +79,8 @@ class TelegramClient:
                     response = await client.post(f"{base_url}/{method}", data=data, files=files)
                 except (httpx.TimeoutException, httpx.TransportError) as exc:
                     last_error = exc
+                    if delivery_sensitive:
+                        raise TelegramDeliveryUncertainError(method, exc) from exc
                     if attempt >= max_attempts:
                         raise RuntimeError(f"Telegram request failed after {attempt} attempts: {exc}") from exc
                     await asyncio.sleep(1.0 * attempt)
@@ -109,7 +130,11 @@ class TelegramClient:
     async def send_text(self, chat_id: str, text: str) -> list[int]:
         message_ids: list[int] = []
         for chunk in self._split_text(text, self.MESSAGE_TEXT_LIMIT):
-            result = await self._request("sendMessage", data={"chat_id": chat_id, "text": chunk, "disable_web_page_preview": True})
+            result = await self._request(
+                "sendMessage",
+                data={"chat_id": chat_id, "text": chunk, "disable_web_page_preview": True},
+                delivery_sensitive=True,
+            )
             message_ids.append(result["message_id"])
         return message_ids
 
@@ -126,7 +151,12 @@ class TelegramClient:
                 media_item["caption"] = caption
             media.append(media_item)
             files[attach_name] = (path.name, path.read_bytes())
-        result = await self._request("sendMediaGroup", data={"chat_id": chat_id, "media": json.dumps(media)}, files=files)
+        result = await self._request(
+            "sendMediaGroup",
+            data={"chat_id": chat_id, "media": json.dumps(media)},
+            files=files,
+            delivery_sensitive=True,
+        )
         return [item["message_id"] for item in result]
 
     async def send_file(self, chat_id: str, attachment: TransferAttachment, caption: str = "") -> list[int]:
@@ -153,10 +183,20 @@ class TelegramClient:
                 data["duration"] = str(attachment.duration)
         content_type = attachment.mime_type or self._guess_content_type(attachment, path)
         try:
-            result = await self._request(method, data=data, files={field: (path.name, file_bytes, content_type)})
+            result = await self._request(
+                method,
+                data=data,
+                files={field: (path.name, file_bytes, content_type)},
+                delivery_sensitive=True,
+            )
         except TelegramAPIError as exc:
             if attachment.type == AttachmentType.PHOTO and self._should_fallback_photo_to_document(exc):
-                result = await self._request("sendDocument", data=data, files={"document": (path.name, file_bytes, content_type)})
+                result = await self._request(
+                    "sendDocument",
+                    data=data,
+                    files={"document": (path.name, file_bytes, content_type)},
+                    delivery_sensitive=True,
+                )
             else:
                 raise
         return [result["message_id"]]

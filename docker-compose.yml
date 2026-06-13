@@ -1,0 +1,17 @@
+services:
+  vk2tg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vk2tg
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: data
+      CACHE_DIR: data/cache
+      FFMPEG_BINARY: ffmpeg
+    volumes:
+      - ./data:/app/data

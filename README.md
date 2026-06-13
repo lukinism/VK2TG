@@ -103,6 +103,61 @@ CACHE_DIR=data/cache
 LOG_LEVEL=INFO
 ```
 
+## Запуск в Docker
+
+Если нужен самый простой production-like запуск без ручной установки Python, Node.js и `ffmpeg`, можно использовать Docker.
+
+### 1. Подготовьте `.env`
+
+```bash
+cp .env.example .env
+```
+
+Заполните хотя бы:
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin
+SESSION_SECRET=change-me-please
+POLL_INTERVAL_SECONDS=300
+RETRY_LIMIT=3
+DATA_DIR=data
+CACHE_DIR=data/cache
+LOG_LEVEL=INFO
+```
+
+Токены VK и Telegram по-прежнему можно добавить потом через админку.
+
+### 2. Сборка и запуск
+
+```bash
+docker compose up -d --build
+```
+
+После запуска сервис будет доступен по адресам:
+
+- [http://localhost:8000/](http://localhost:8000/)
+- [http://localhost:8000/app/](http://localhost:8000/app/)
+
+### 3. Остановка
+
+```bash
+docker compose down
+```
+
+### 4. Обновление после изменений
+
+```bash
+docker compose up -d --build
+```
+
+### Что важно
+
+- React-админка собирается прямо внутри Docker-образа
+- `ffmpeg` уже устанавливается в контейнер автоматически
+- Все данные сохраняются в локальную папку `data/`
+- Для проверки статуса контейнера используется healthcheck на `GET /api/health`
+
 ## Запуск backend
 
 ### Windows

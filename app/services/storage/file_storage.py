@@ -136,7 +136,11 @@ class FileStorage:
     async def list_sources(self) -> list[VKSource]:
         async with self._lock:
             data = json.loads(self.sources_path.read_text(encoding="utf-8"))
-        return self._sources_adapter.validate_python(data)
+            sources = self._sources_adapter.validate_python(data)
+            sources, changed = self._normalize_sources(sources)
+            if changed:
+                await self._atomic_write_json(self.sources_path, [item.model_dump(mode="json") for item in sources])
+        return sources
 
     async def get_source(self, source_id: str) -> VKSource | None:
         sources = await self.list_sources()
@@ -146,6 +150,9 @@ class FileStorage:
         async with self._lock:
             raw = json.loads(self.sources_path.read_text(encoding="utf-8"))
             sources = self._sources_adapter.validate_python(raw)
+            sources, changed = self._normalize_sources(sources)
+            if not source.id or not source.id.strip():
+                source.id = uuid4().hex
             for index, current in enumerate(sources):
                 if current.id == source.id:
                     sources[index] = source
@@ -159,11 +166,25 @@ class FileStorage:
         async with self._lock:
             raw = json.loads(self.sources_path.read_text(encoding="utf-8"))
             sources = self._sources_adapter.validate_python(raw)
+            sources, changed = self._normalize_sources(sources)
             new_sources = [item for item in sources if item.id != source_id]
-            changed = len(new_sources) != len(sources)
-            if changed:
+            deleted = len(new_sources) != len(sources)
+            if deleted or changed:
                 await self._atomic_write_json(self.sources_path, [item.model_dump(mode="json") for item in new_sources])
-        return changed
+        return deleted
+
+    def _normalize_sources(self, sources: list[VKSource]) -> tuple[list[VKSource], bool]:
+        changed = False
+        seen_ids: set[str] = set()
+        normalized: list[VKSource] = []
+        for source in sources:
+            source_id = (source.id or "").strip()
+            if not source_id or source_id in seen_ids:
+                source.id = uuid4().hex
+                changed = True
+            seen_ids.add(source.id)
+            normalized.append(source)
+        return normalized, changed
 
     async def save_transfer(self, transfer: TransferRecord) -> TransferRecord:
         path = self.transfers_dir / f"{transfer.id}.json"
@@ -204,6 +225,13 @@ class FileStorage:
             return None
         async with self._lock:
             return TransferRecord.model_validate_json(path.read_text(encoding="utf-8"))
+
+    async def get_latest_transfer_for_post(self, source_id: str, vk_post_id: int) -> TransferRecord | None:
+        transfers = await self.list_transfers()
+        matches = [item for item in transfers if item.source_id == source_id and item.vk_post_id == vk_post_id]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: item.updated_at)
 
     async def clear_transfer_queue(self) -> dict[str, int]:
         async with self._lock:
@@ -294,11 +322,16 @@ class FileStorage:
             return json.loads(self.state_path.read_text(encoding="utf-8"))
 
     async def was_post_processed(self, source_id: str, vk_post_id: int) -> bool:
-        transfers = await self.list_transfers()
-        return any(
-            item.source_id == source_id and item.vk_post_id == vk_post_id and item.status in {TransferStatus.SUCCESS, TransferStatus.PARTIAL, TransferStatus.SKIPPED}
-            for item in transfers
-        )
+        transfer = await self.get_latest_transfer_for_post(source_id, vk_post_id)
+        if not transfer:
+            return False
+        if transfer.status in {TransferStatus.SUCCESS, TransferStatus.PARTIAL, TransferStatus.SKIPPED, TransferStatus.QUEUED}:
+            return True
+        if transfer.telegram_message_ids:
+            return True
+        if any(item.sent for item in transfer.attachments):
+            return True
+        return False
 
     async def dashboard_stats(self) -> DashboardStats:
         sources = await self.list_sources()

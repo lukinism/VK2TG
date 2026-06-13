@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from app.core.http import build_async_client
 from app.core.logging import AppLogger
 from app.models.schemas import AttachmentType, TransferAttachment, TransferRecord, TransferStatus, VKPost, VKSource
+from app.services.telegram.client import TelegramDeliveryUncertainError
 
 
 class TransferService:
@@ -29,7 +30,8 @@ class TransferService:
         posts = await self.vk_client.fetch_new_posts(source)
         records: list[TransferRecord] = []
         for post in posts:
-            if await self.storage.was_post_processed(source.id, post.post_id):
+            existing_transfer = await self.storage.get_latest_transfer_for_post(source.id, post.post_id)
+            if existing_transfer and self._should_block_duplicate_transfer(existing_transfer):
                 continue
             if post.is_repost and not source.settings.include_reposts:
                 records.append(await self._build_skipped_transfer(source, post, "Repost skipped by source settings"))
@@ -43,19 +45,33 @@ class TransferService:
                     reason += f" ({filtered_out} attachment(s) were disabled)"
                 records.append(await self._build_skipped_transfer(source, post, reason))
                 continue
-            transfer = TransferRecord(
-                source_id=source.id,
-                source_name=source.name,
-                vk_post_id=post.post_id,
-                vk_post_url=post.original_url,
-                telegram_target=source.telegram_target,
-                post_text=filtered_text,
-                post_created_at=post.created_at,
-                attachments=filtered_attachments,
-            )
-            if filtered_out:
-                transfer.technical_logs.append(f"{filtered_out} attachment(s) skipped by source settings before publish")
-            await self.storage.save_transfer(transfer)
+            if existing_transfer:
+                transfer = existing_transfer
+                transfer.source_name = source.name
+                transfer.vk_post_url = post.original_url
+                transfer.telegram_target = source.telegram_target
+                transfer.post_text = filtered_text
+                transfer.post_created_at = post.created_at
+                transfer.attachments = filtered_attachments
+                transfer.updated_at = datetime.now(timezone.utc)
+                transfer.technical_logs.append("Reusing existing transfer record for retry-safe processing")
+                if filtered_out:
+                    transfer.technical_logs.append(f"{filtered_out} attachment(s) skipped by source settings before publish")
+                await self.storage.update_transfer(transfer)
+            else:
+                transfer = TransferRecord(
+                    source_id=source.id,
+                    source_name=source.name,
+                    vk_post_id=post.post_id,
+                    vk_post_url=post.original_url,
+                    telegram_target=source.telegram_target,
+                    post_text=filtered_text,
+                    post_created_at=post.created_at,
+                    attachments=filtered_attachments,
+                )
+                if filtered_out:
+                    transfer.technical_logs.append(f"{filtered_out} attachment(s) skipped by source settings before publish")
+                await self.storage.save_transfer(transfer)
             transfer = await self.publish(source, post, transfer)
             records.append(transfer)
         source.last_checked_at = datetime.now(timezone.utc)
@@ -85,6 +101,15 @@ class TransferService:
         await self.logger.info("transfer.skipped", f"VK post {post.post_id} skipped: {reason}", source_id=source.id, transfer_id=transfer.id)
         return transfer
 
+    def _should_block_duplicate_transfer(self, transfer: TransferRecord) -> bool:
+        if transfer.status in {TransferStatus.SUCCESS, TransferStatus.PARTIAL, TransferStatus.SKIPPED, TransferStatus.QUEUED}:
+            return True
+        if transfer.telegram_message_ids:
+            return True
+        if any(item.sent for item in transfer.attachments):
+            return True
+        return False
+
     def _is_attachment_allowed(self, source: VKSource, attachment: TransferAttachment) -> bool:
         if attachment.type == AttachmentType.PHOTO:
             return source.settings.include_photos
@@ -104,10 +129,10 @@ class TransferService:
         transfer.technical_logs.append("Transfer queued")
         for attempt in range(1, retry_limit + 1):
             transfer.attempts = attempt
+            attempt_sent_ids: list[int] = []
             try:
                 await self._download_attachments(transfer.attachments)
                 caption = self._build_caption(source, post)
-                sent_ids: list[int] = []
                 sendable_attachments = [
                     item for item in transfer.attachments if item.local_path and item.type in {AttachmentType.PHOTO, AttachmentType.DOCUMENT, AttachmentType.VIDEO, AttachmentType.AUDIO}
                 ]
@@ -118,8 +143,8 @@ class TransferService:
                         transfer.technical_logs.append(
                             f"Publication text exceeded Telegram media caption limit ({len(caption)} chars), sent as text before attachments"
                         )
-                        sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, leading_text))
-                    sent_ids.extend(await self.telegram_client.send_media_group(source.telegram_target, photo_attachments, media_caption))
+                        attempt_sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, leading_text))
+                    attempt_sent_ids.extend(await self.telegram_client.send_media_group(source.telegram_target, photo_attachments, media_caption))
                     for item in photo_attachments:
                         item.sent = True
                 else:
@@ -128,25 +153,25 @@ class TransferService:
                         transfer.technical_logs.append(
                             f"Publication text exceeded Telegram media caption limit ({len(caption)} chars), sent as text before attachments"
                         )
-                        sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, leading_text))
+                        attempt_sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, leading_text))
                         caption_consumed = True
                     elif not sendable_attachments and caption:
-                        sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, caption))
+                        attempt_sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, caption))
                         caption_consumed = True
                     for attachment in transfer.attachments:
                         if attachment.local_path and attachment.type in {AttachmentType.PHOTO, AttachmentType.DOCUMENT, AttachmentType.VIDEO, AttachmentType.AUDIO}:
                             attachment_caption = media_caption if media_caption and not caption_consumed else ""
-                            sent_ids.extend(await self.telegram_client.send_file(source.telegram_target, attachment, attachment_caption))
+                            attempt_sent_ids.extend(await self.telegram_client.send_file(source.telegram_target, attachment, attachment_caption))
                             attachment.sent = True
                             caption_consumed = True
                         elif attachment.type == AttachmentType.LINK and attachment.url:
-                            sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, attachment.url))
+                            attempt_sent_ids.extend(await self.telegram_client.send_text(source.telegram_target, attachment.url))
                             attachment.sent = True
                         else:
                             attachment.skipped = True
-                transfer.telegram_message_ids = sent_ids
-                if sent_ids:
-                    transfer.telegram_message_url = f"message_ids={','.join(str(item) for item in sent_ids)}"
+                transfer.telegram_message_ids = self._merge_message_ids(transfer.telegram_message_ids, attempt_sent_ids)
+                if transfer.telegram_message_ids:
+                    transfer.telegram_message_url = f"message_ids={','.join(str(item) for item in transfer.telegram_message_ids)}"
                 transfer.status = TransferStatus.PARTIAL if any(item.skipped or item.error for item in transfer.attachments) else TransferStatus.SUCCESS
                 transfer.error = None
                 transfer.updated_at = datetime.now(timezone.utc)
@@ -158,18 +183,43 @@ class TransferService:
                 break
             except Exception as exc:
                 traceback_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
-                transfer.status = TransferStatus.ERROR
+                transfer.telegram_message_ids = self._merge_message_ids(transfer.telegram_message_ids, attempt_sent_ids)
+                if transfer.telegram_message_ids:
+                    transfer.telegram_message_url = f"message_ids={','.join(str(item) for item in transfer.telegram_message_ids)}"
+                delivery_uncertain = isinstance(exc, TelegramDeliveryUncertainError)
+                partial_delivery_detected = bool(
+                    delivery_uncertain or attempt_sent_ids or transfer.telegram_message_ids or any(item.sent for item in transfer.attachments)
+                )
+                transfer.status = TransferStatus.PARTIAL if partial_delivery_detected else TransferStatus.ERROR
                 transfer.error = traceback_text or repr(exc)
                 transfer.updated_at = datetime.now(timezone.utc)
                 transfer.technical_logs.append(f"Attempt {attempt} failed:\n{traceback_text or repr(exc)}")
+                if delivery_uncertain:
+                    transfer.technical_logs.append(
+                        "Telegram did not confirm delivery because the network connection broke during the send request. "
+                        "Automatic retries were stopped to prevent duplicate posts."
+                    )
+                if partial_delivery_detected:
+                    transfer.technical_logs.append(
+                        "Automatic retries stopped because part of the post was already delivered to Telegram. This protects against duplicate reposts."
+                    )
                 await self.logger.error(
                     "transfer.failed",
                     f"Transfer failed for VK post {post.post_id}: {traceback_text or repr(exc)}",
                     source_id=source.id,
                     transfer_id=transfer.id,
                 )
+                if partial_delivery_detected:
+                    break
         await self.storage.update_transfer(transfer)
         return transfer
+
+    def _merge_message_ids(self, existing: list[int], new_ids: list[int]) -> list[int]:
+        merged = list(existing)
+        for message_id in new_ids:
+            if message_id not in merged:
+                merged.append(message_id)
+        return merged
 
     async def _cleanup_cached_files(self, attachments: list[TransferAttachment]) -> int:
         removed_files = 0
